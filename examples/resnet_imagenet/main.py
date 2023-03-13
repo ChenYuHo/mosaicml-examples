@@ -19,6 +19,9 @@ from composer.utils import dist, reproducibility
 from data import build_imagenet_dataspec
 from model import build_composer_resnet
 from omegaconf import OmegaConf
+from cnat import cnat_compress_hook, block_cnat_compress_hook
+from distutils.util import strtobool
+import random
 
 from examples.common.config_utils import log_config
 
@@ -171,7 +174,7 @@ def main(config):
     loggers = [
         build_logger(name, logger_config)
         for name, logger_config in config.loggers.items()
-    ]
+    ] if config.loggers != 'none' else []
 
     # Create the Trainer!
     print('Building Trainer')
@@ -187,6 +190,8 @@ def main(config):
         schedulers=lr_scheduler,
         algorithms=algorithms,
         loggers=loggers,
+        progress_bar=config.loggers!='none',
+        log_to_console=config.loggers=='none',
         max_duration=config.max_duration,
         callbacks=[speed_monitor, lr_monitor, memory_monitor],
         save_folder=config.save_folder,
@@ -201,6 +206,17 @@ def main(config):
         python_log_level=config.get('python_log_level', None),
     )
     print('Built Trainer\n')
+
+    if config.cnat == 'block':
+        print('Use block_cnat_compress_hook\n')
+        random.seed(config.seed)
+        trainer.state.model.register_comm_hook(None, block_cnat_compress_hook)
+    elif strtobool(str(config.cnat)):
+        print('Use cnat_compress_hook\n')
+        random.seed(config.seed)
+        trainer.state.model.register_comm_hook(None, cnat_compress_hook)
+    else:
+        print('No CNat')
 
     print('Logging config')
     log_config(config)

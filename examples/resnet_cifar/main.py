@@ -9,21 +9,27 @@ import torch
 from composer import Trainer
 from composer.algorithms import BlurPool, ChannelsLast, LabelSmoothing, MixUp
 from composer.callbacks import LRMonitor, MemoryMonitor, SpeedMonitor
-from composer.loggers import ProgressBarLogger, WandBLogger
+from composer.loggers import ProgressBarLogger, WandBLogger, FileLogger
 from composer.optim import DecoupledSGDW, MultiStepWithWarmupScheduler
 from composer.utils import dist, reproducibility
 from omegaconf import OmegaConf
+from cnat import cnat_compress_hook, block_cnat_compress_hook
+from distutils.util import strtobool
 
 from examples.common.config_utils import log_config
 from examples.resnet_cifar.data import build_cifar10_dataspec
 from examples.resnet_cifar.model import build_composer_resnet_cifar
 
+import random
 
 def build_logger(name: str, kwargs: Dict):
     if name == 'progress_bar':
         return ProgressBarLogger()
     elif name == 'wandb':
         return WandBLogger(**kwargs)
+    elif name == 'file':
+        kwargs['filename'] = f'rank_{dist.get_global_rank()}_{kwargs["filename"]}'
+        return FileLogger(**kwargs)
     else:
         raise ValueError(f'Not sure how to build logger: {name}')
 
@@ -140,6 +146,17 @@ def main(config):
         python_log_level=config.get('python_log_level', None),
     )
     print('Built Trainer\n')
+
+    if config.cnat == 'block':
+        print('Use block_cnat_compress_hook\n')
+        random.seed(config.seed)
+        trainer.state.model.register_comm_hook(None, block_cnat_compress_hook)
+    elif strtobool(str(config.cnat)):
+        print('Use cnat_compress_hook\n')
+        random.seed(config.seed)
+        trainer.state.model.register_comm_hook(None, cnat_compress_hook)
+    else:
+        print('No CNat')
 
     print('Logging config')
     log_config(config)
